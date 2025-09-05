@@ -1,4 +1,3 @@
-Understood. Here’s a **professional README** for **EIVA** written in a clean, well-documented format without emojis or casual styling:
 
 ---
 
