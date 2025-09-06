@@ -2,23 +2,22 @@ import whisper
 import pyaudio
 import numpy as np
 import threading
-import time
+import queue
 
-# Load Whisper model
-model = whisper.load_model("small")
+model = whisper.load_model("base")
 
 # Audio settings
 RATE = 16000       # sample rate
-CHUNK = 1024       # buffer size (about 64ms of audio)
-ROLLING_WINDOW = 5 # seconds of audio to keep in buffer
+CHUNK = 1024       # buffer size (~64ms of audio)
+CHUNK_DURATION = 3 # seconds of audio per transcription chunk
 
-# Shared buffer
-audio_buffer = np.zeros(RATE * ROLLING_WINDOW, dtype=np.float32)
-buffer_lock = threading.Lock()
+# Derived values
+FRAMES_PER_CHUNK = int(RATE * CHUNK_DURATION / CHUNK)
+
+audio_queue = queue.Queue()
 
 def audio_capture():
-    """Capture audio from microphone and fill buffer."""
-    global audio_buffer
+    """Capture audio and push fixed-size chunks into queue."""
     p = pyaudio.PyAudio()
     stream = p.open(format=pyaudio.paInt16,
                     channels=1,
@@ -26,16 +25,18 @@ def audio_capture():
                     input=True,
                     frames_per_buffer=CHUNK)
 
-    print("Listening... (press Ctrl+C to stop)")
+    print(" Listening... (Ctrl+C to stop)")
 
+    frames = []
     try:
         while True:
             data = stream.read(CHUNK, exception_on_overflow=False)
-            audio_np = np.frombuffer(data, np.int16).astype(np.float32) / 32768.0
+            frames.append(np.frombuffer(data, np.int16))
 
-            with buffer_lock:
-                audio_buffer = np.roll(audio_buffer, -len(audio_np))
-                audio_buffer[-len(audio_np):] = audio_np
+            if len(frames) >= FRAMES_PER_CHUNK:
+                audio_np = np.concatenate(frames).astype(np.float32) / 32768.0
+                audio_queue.put(audio_np)
+                frames = []
     except KeyboardInterrupt:
         pass
     finally:
@@ -44,20 +45,20 @@ def audio_capture():
         p.terminate()
 
 def transcribe_loop():
-    """Continuously transcribe from rolling buffer."""
-    global audio_buffer
+    """Continuously take chunks from queue and transcribe."""
     while True:
-        time.sleep(1)  # every 1 sec update subtitles
-        with buffer_lock:
-            audio_copy = audio_buffer.copy()
+        audio_chunk = audio_queue.get()
+        if audio_chunk is None:
+            break
 
-        result = model.transcribe(audio_copy, fp16=False, language="en")
+        result = model.transcribe(audio_chunk, fp16=False, language="en")
         text = result["text"].strip()
+
         if text:
-            print(f"\r{text}", end="")
+            print(f" {text}", flush=True)
 
 if __name__ == "__main__":
-    # Start audio thread
+    # Start audio capture thread
     t = threading.Thread(target=audio_capture, daemon=True)
     t.start()
 
@@ -65,4 +66,5 @@ if __name__ == "__main__":
     try:
         transcribe_loop()
     except KeyboardInterrupt:
-        print("\nStopped.")
+        print("\n Stopped.")
+
