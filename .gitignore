@@ -1,4 +1,4 @@
-.vscode
-datasets
-myenv
-src\__pycache__
+.vscode/
+datasets/
+myenv/
+src/__pycache__/
