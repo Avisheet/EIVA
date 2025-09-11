@@ -1,6 +1,5 @@
 from transformers import pipeline
 
-# Load the GoEmotions model
 emotion_pipeline = pipeline(
     task="text-classification",
     model="SamLowe/roberta-base-go_emotions",

@@ -1,17 +1,13 @@
 import whisper
 import pyaudio
 import numpy as np
-import threading
 import queue
 
 model = whisper.load_model("base")
 
-# Audio settings
-RATE = 16000       # sample rate
-CHUNK = 1024       # buffer size (~64ms of audio)
-CHUNK_DURATION = 3 # seconds of audio per transcription chunk
-
-# Derived values
+RATE = 16000
+CHUNK = 1024
+CHUNK_DURATION = 3
 FRAMES_PER_CHUNK = int(RATE * CHUNK_DURATION / CHUNK)
 
 audio_queue = queue.Queue()
@@ -25,9 +21,8 @@ def audio_capture():
                     input=True,
                     frames_per_buffer=CHUNK)
 
-    print(" Listening... (Ctrl+C to stop)")
-
     frames = []
+    data_text = None
     try:
         while True:
             data = stream.read(CHUNK, exception_on_overflow=False)
@@ -35,36 +30,13 @@ def audio_capture():
 
             if len(frames) >= FRAMES_PER_CHUNK:
                 audio_np = np.concatenate(frames).astype(np.float32) / 32768.0
-                audio_queue.put(audio_np)
                 frames = []
-    except KeyboardInterrupt:
-        pass
+
+                result = model.transcribe(audio_np, fp16=False, language="en")
+                text = result["text"].strip()
+                if text:
+                    return text
     finally:
         stream.stop_stream()
         stream.close()
         p.terminate()
-
-def transcribe_loop():
-    """Continuously take chunks from queue and transcribe."""
-    while True:
-        audio_chunk = audio_queue.get()
-        if audio_chunk is None:
-            break
-
-        result = model.transcribe(audio_chunk, fp16=False, language="en")
-        text = result["text"].strip()
-
-        if text:
-            print(f" {text}", flush=True)
-
-if __name__ == "__main__":
-    # Start audio capture thread
-    t = threading.Thread(target=audio_capture, daemon=True)
-    t.start()
-
-    # Run transcription loop
-    try:
-        transcribe_loop()
-    except KeyboardInterrupt:
-        print("\n Stopped.")
-
