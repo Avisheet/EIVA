@@ -2,3 +2,4 @@
 datasets/
 myenv/
 src/__pycache__/
+test.py
